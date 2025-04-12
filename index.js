@@ -25,45 +25,46 @@ function isValidYouTubeURL(url) {
 app.post('/download', async (req, res) => {
   const { videoUrl } = req.body;
 
-  // Step 1: Validate the URL
   if (!videoUrl || !isValidYouTubeURL(videoUrl)) {
-    console.log('Invalid URL:', videoUrl);  // Log invalid URL
+    console.log('Invalid URL:', videoUrl);
     return res.status(400).json({ error: 'Invalid YouTube URL' });
   }
 
-  // Step 2: Define the video file path (temporarily saved)
-  const videoId = videoUrl.split('v=')[1];  // Simple way to get video ID
+  const videoId = videoUrl.split('v=')[1];
   const title = `video-${videoId}.mp4`;
-  const filePath = path.join(__dirname, title);  // Saving video locally
+  const filePath = path.join(__dirname, title);
 
-  console.log('Starting to download video:', videoUrl);  // Log video URL
+  console.log('Starting to download video:', videoUrl);
+
   try {
-    // Step 3: Download the video using ytdl-core (save it locally)
-    const videoStream = ytdl(videoUrl, { quality: 'highestvideo' });
+    const spoofedOptions = {
+      quality: 'highestvideo',
+      requestOptions: {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/119.0.0.0 Safari/537.36',
+        },
+      },
+    };
 
-    // Step 4: Set up a writable file stream
+    const videoStream = ytdl(videoUrl, spoofedOptions);
     const fileWriteStream = fs.createWriteStream(filePath);
-    
-    // Add error handling to videoStream
+
     videoStream.on('error', (err) => {
       console.error('Error with video stream:', err);
-      fs.unlinkSync(filePath);  // Remove partial file if error occurs
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
       res.status(500).json({ error: 'Error downloading video' });
     });
 
-    // Add error handling to fileWriteStream
     fileWriteStream.on('error', (err) => {
       console.error('Error with file write stream:', err);
-      fs.unlinkSync(filePath);  // Remove partial file if error occurs
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
       res.status(500).json({ error: 'Error writing video to file' });
     });
 
-    // Add 'finish' event to fileWriteStream to handle when the download is complete
     fileWriteStream.on('finish', async () => {
       console.log('Video downloaded locally, starting upload to S3...');
 
-      // Step 5: Upload the video to S3
-      const fileStream = fs.createReadStream(filePath);  // Read file from disk
+      const fileStream = fs.createReadStream(filePath);
       const uploadParams = {
         Bucket: BUCKET_NAME,
         Key: title,
@@ -71,10 +72,8 @@ app.post('/download', async (req, res) => {
         ContentType: 'video/mp4',
       };
 
-      // Step 6: Upload to S3
       s3.upload(uploadParams, (err, data) => {
-        // Delete the local file after uploading to S3
-        fs.unlinkSync(filePath);  // Remove file from local disk
+        fs.unlinkSync(filePath);
 
         if (err) {
           console.error('Error uploading to S3', err);
@@ -86,15 +85,13 @@ app.post('/download', async (req, res) => {
       });
     });
 
-    // Start piping the video stream to the fileWriteStream
     videoStream.pipe(fileWriteStream);
-
   } catch (err) {
-    console.error('Error downloading video:', err);  // Log the error that caused the failure
+    console.error('Error downloading video:', err);
     res.status(500).json({ error: 'Failed to download video' });
   }
 });
-// test comment for github actions
+
 // Start the server
 app.listen(port, () => {
   console.log(`yt-downloader microservice running at http://localhost:${port}`);
