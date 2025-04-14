@@ -3,15 +3,15 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const AWS = require('aws-sdk');
-const ytdl = require('ytdl-core');
+//const ytdl = require('ytdl-core');
 const urlRegex = require('url-regex-safe'); // Safe URL regex validation
-
+const ytdl = require("@distube/ytdl-core");
 const app = express();
 const port = 3000;
 
 // Initialize AWS S3
 const s3 = new AWS.S3();
-const BUCKET_NAME = 'yt-translator-down-1';  // Replace with your bucket name
+const BUCKET_NAME = 'yt-down-1';  // Replace with your bucket name
 
 // Body parser middleware
 app.use(express.json());
@@ -23,12 +23,13 @@ function isValidYouTubeURL(url) {
 
 // Endpoint to download the YouTube video
 app.post('/download', async (req, res) => {
-  const { videoUrl } = req.body;
+  const { videoUrl, userId } = req.body;
 
-  if (!videoUrl || !isValidYouTubeURL(videoUrl)) {
-    console.log('Invalid URL:', videoUrl);
-    return res.status(400).json({ error: 'Invalid YouTube URL' });
-  }
+if (!videoUrl || !isValidYouTubeURL(videoUrl) || !userId) {
+  console.log('Invalid request:', { videoUrl, userId });
+  return res.status(400).json({ error: 'Missing or invalid video URL or userId' });
+}
+
 
   const videoId = videoUrl.split('v=')[1];
   const title = `video-${videoId}.mp4`;
@@ -38,7 +39,7 @@ app.post('/download', async (req, res) => {
 
   try {
     const spoofedOptions = {
-      quality: 'highestvideo',
+      filter: 'audioandvideo',
       requestOptions: {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/119.0.0.0 Safari/537.36',
@@ -70,7 +71,11 @@ app.post('/download', async (req, res) => {
         Key: title,
         Body: fileStream,
         ContentType: 'video/mp4',
+        Metadata: {
+          userId: userId, // S3 metadata keys must be lowercase
+        },
       };
+      
 
       s3.upload(uploadParams, (err, data) => {
         fs.unlinkSync(filePath);
